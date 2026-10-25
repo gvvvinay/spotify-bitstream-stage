@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Spotify BitStream - Snippet Playlist Player</title>
+    <meta name="description" content="Store and curate your favorite bits of music from Spotify and play them seamlessly as custom snippet playlists from point A to point B." />
+    <meta property="og:title" content="Spotify BitStream - Snippet Playlist Player" />
+    <meta property="og:description" content="Store and curate your favorite bits of music from Spotify and play them seamlessly as custom snippet playlists from point A to point B." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      // Gracefully prevent opaque cross-origin script errors from crashing the page
+      window.addEventListener('error', function (e) {
+        if (e && (e.message === 'Script error.' || (!e.filename && !e.lineno))) {
+          e.preventDefault && e.preventDefault();
+          return true;
+        }
+      });
+    </script>
+  </head>
+  <body class="bg-slate-950 text-slate-100 antialiased selection:bg-emerald-500 selection:text-black">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

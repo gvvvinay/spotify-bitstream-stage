@@ -1,0 +1,6 @@
+{
+  "name": "Spotify BitStream - Snippet Playlist Player",
+  "description": "Store and curate your favorite bits of music from Spotify and play them seamlessly as custom snippet playlists from point A to point B.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,89 @@
+{
+  "entities": {
+    "snippet": {
+      "title": "Music Snippet",
+      "description": "A saved favorite snippet/clip of a song with start and end timestamps",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 300 },
+        "artist": { "type": "string", "maxLength": 300 },
+        "album": { "type": "string", "maxLength": 300 },
+        "albumArt": { "type": "string", "maxLength": 2048 },
+        "spotifyUri": { "type": "string", "maxLength": 256 },
+        "trackId": { "type": "string", "maxLength": 128 },
+        "spotifyUrl": { "type": "string", "maxLength": 2048 },
+        "durationMs": { "type": "number" },
+        "startMs": { "type": "number" },
+        "endMs": { "type": "number" },
+        "snippetName": { "type": "string", "maxLength": 300 },
+        "playlistId": { "type": "string", "maxLength": 128 },
+        "notes": { "type": "string", "maxLength": 2000 },
+        "color": { "type": "string", "maxLength": 32 },
+        "tags": { "type": "array" },
+        "isFavorite": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "title", "artist", "album", "spotifyUri", "trackId", "startMs", "endMs", "snippetName", "playlistId", "createdAt"]
+    },
+    "playlist": {
+      "title": "Snippet Playlist",
+      "description": "A playlist of curated snippets",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 200 },
+        "description": { "type": "string", "maxLength": 1000 },
+        "coverGradient": { "type": "string", "maxLength": 200 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "name", "createdAt"]
+    },
+    "userProfile": {
+      "title": "User Profile",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 128 },
+        "photoURL": { "type": "string", "maxLength": 2048 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "displayName", "createdAt"]
+    },
+    "spotifyCredentials": {
+      "title": "Spotify API Credentials",
+      "description": "Spotify Client ID and Client Secret stored securely for the user's account",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "clientId": { "type": "string", "maxLength": 128 },
+        "clientSecret": { "type": "string", "maxLength": 128 },
+        "refreshToken": { "type": "string", "maxLength": 512 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "clientId"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/profile": {
+      "schema": "userProfile",
+      "description": "Public profile of the user"
+    },
+    "/users/{userId}/snippets/{snippetId}": {
+      "schema": "snippet",
+      "description": "Saved music clips and favorite moments belonging to the user"
+    },
+    "/users/{userId}/playlists/{playlistId}": {
+      "schema": "playlist",
+      "description": "Playlists belonging to the user"
+    },
+    "/users/{userId}/spotifyConfig/{configId}": {
+      "schema": "spotifyCredentials",
+      "description": "Spotify Client ID and Client Secret credentials stored securely for the user's account"
+    }
+  }
+}

@@ -1,0 +1,154 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Connectivity probe
+    match /test/connection {
+      allow read: if true;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidSnippet(data, userId) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'artist', 'album', 'spotifyUri', 'trackId', 'startMs', 'endMs', 'snippetName', 'playlistId', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'userId', 'title', 'artist', 'album', 'albumArt', 'spotifyUri', 'trackId', 'spotifyUrl', 'durationMs', 'startMs', 'endMs', 'snippetName', 'playlistId', 'notes', 'tags', 'color', 'isFavorite', 'createdAt', 'updatedAt']) &&
+        data.userId == userId &&
+        data.userId == request.auth.uid &&
+        data.id is string && isValidId(data.id) &&
+        data.title is string && data.title.size() <= 300 &&
+        data.artist is string && data.artist.size() <= 300 &&
+        data.album is string && data.album.size() <= 300 &&
+        (!('albumArt' in data) || (data.albumArt is string && data.albumArt.size() <= 2048)) &&
+        data.spotifyUri is string && data.spotifyUri.size() <= 256 &&
+        data.trackId is string && data.trackId.size() <= 128 &&
+        (!('spotifyUrl' in data) || (data.spotifyUrl is string && data.spotifyUrl.size() <= 2048)) &&
+        (!('durationMs' in data) || (data.durationMs is number && data.durationMs >= 0)) &&
+        data.startMs is number && data.startMs >= 0 &&
+        data.endMs is number && data.endMs >= data.startMs &&
+        data.snippetName is string && data.snippetName.size() <= 300 &&
+        data.playlistId is string && data.playlistId.size() <= 128 &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 2000)) &&
+        (!('tags' in data) || (data.tags is list && data.tags.size() <= 50)) &&
+        (!('color' in data) || (data.color is string && data.color.size() <= 32)) &&
+        (!('isFavorite' in data) || (data.isFavorite is bool)) &&
+        (!('updatedAt' in data) || data.updatedAt is timestamp) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidPlaylist(data, userId) {
+      return data.keys().hasAll(['id', 'userId', 'name', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'userId', 'name', 'description', 'coverGradient', 'createdAt']) &&
+        data.userId == userId &&
+        data.userId == request.auth.uid &&
+        data.id is string && isValidId(data.id) &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+        (!('description' in data) || (data.description is string && data.description.size() <= 1000)) &&
+        (!('coverGradient' in data) || (data.coverGradient is string && data.coverGradient.size() <= 200)) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidProfile(data, userId) {
+      return data.keys().hasAll(['userId', 'displayName', 'createdAt']) &&
+        data.keys().hasOnly(['userId', 'displayName', 'photoURL', 'createdAt']) &&
+        data.userId == userId &&
+        data.userId == request.auth.uid &&
+        data.displayName is string && data.displayName.size() > 0 && data.displayName.size() <= 128 &&
+        (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 2048)) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidSpotifyConfig(data, userId) {
+      return data.keys().hasAll(['userId', 'clientId']) &&
+        data.keys().hasOnly(['userId', 'clientId', 'clientSecret', 'refreshToken', 'updatedAt']) &&
+        data.userId == userId &&
+        data.userId == request.auth.uid &&
+        data.clientId is string && data.clientId.size() > 0 && data.clientId.size() <= 128 &&
+        (!('clientSecret' in data) || (data.clientSecret is string && data.clientSecret.size() <= 128)) &&
+        (!('refreshToken' in data) || (data.refreshToken is string && data.refreshToken.size() <= 512)) &&
+        (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    match /users/{userId} {
+      match /profile {
+        allow get: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+          isValidProfile(incoming(), userId) &&
+          incoming().createdAt == request.time;
+        allow update: if isOwner(userId) &&
+          isValidProfile(incoming(), userId) &&
+          incoming().userId == existing().userId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL']);
+        allow delete: if isOwner(userId);
+      }
+
+      match /spotifyConfig/{configId} {
+        allow get, list: if isOwner(userId);
+        allow create, update: if isOwner(userId) &&
+          isValidId(configId) &&
+          isValidSpotifyConfig(incoming(), userId);
+        allow delete: if isOwner(userId) && isValidId(configId);
+      }
+
+      match /snippets/{snippetId} {
+        allow get, list: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+          isValidId(snippetId) &&
+          snippetId == incoming().id &&
+          isValidSnippet(incoming(), userId) &&
+          incoming().createdAt == request.time;
+        allow update: if isOwner(userId) &&
+          isValidId(snippetId) &&
+          isValidSnippet(incoming(), userId) &&
+          incoming().id == existing().id &&
+          incoming().userId == existing().userId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'snippetName', 'startMs', 'endMs', 'playlistId', 'notes', 'tags', 'color', 'isFavorite',
+            'title', 'artist', 'album', 'albumArt', 'spotifyUri', 'trackId', 'spotifyUrl', 'durationMs',
+            'updatedAt'
+          ]);
+        allow delete: if isOwner(userId) && isValidId(snippetId);
+      }
+
+      match /playlists/{playlistId} {
+        allow get, list: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+          isValidId(playlistId) &&
+          playlistId == incoming().id &&
+          isValidPlaylist(incoming(), userId) &&
+          incoming().createdAt == request.time;
+        allow update: if isOwner(userId) &&
+          isValidId(playlistId) &&
+          isValidPlaylist(incoming(), userId) &&
+          incoming().id == existing().id &&
+          incoming().userId == existing().userId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'description', 'coverGradient']);
+        allow delete: if isOwner(userId) && isValidId(playlistId);
+      }
+    }
+  }
+}
