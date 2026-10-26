@@ -740,6 +740,51 @@ export default function App() {
           playSnippet(finishedSnippet, nextSeg.startMs, nextIdx);
           return;
         }
+
+        // All mashup segments (part 1, part 2, etc.) have now completed!
+        // 1. Loop same mashup if repeat-snippet is active
+        if (playbackMode === 'repeat-snippet') {
+          playSnippet(finishedSnippet, undefined, 0);
+          return;
+        }
+
+        // 2. Custom user queue
+        if (customQueue.length > 0) {
+          const [nextInQueue, ...remainingQueue] = customQueue;
+          setCustomQueue(remainingQueue);
+          playSnippet(nextInQueue);
+          return;
+        }
+
+        // 3. Repeat entire playlist if explicitly enabled
+        if (playbackMode === 'repeat-playlist') {
+          const queue = getQueue();
+          const currentIndex = queue.findIndex((s) => s.id === finishedSnippet.id);
+          const nextSnippet = queue[(currentIndex + 1) % queue.length];
+          if (nextSnippet) {
+            playSnippet(nextSnippet);
+            return;
+          }
+        }
+
+        // 4. Default: MASHUP IS COMPLETE! Immediately stop playback after the second song!
+        setIsPlaying(false);
+        isPlayingRef.current = false;
+        activeMashupSegmentIndexRef.current = 0;
+        setActiveMashupSegmentIndex(0);
+
+        const initialStart = finishedSnippet.mashupSegments[0]?.startMs ?? finishedSnippet.startMs;
+        currentPositionMsRef.current = initialStart;
+        setPositionMs(initialStart);
+        syncPlaybackToServer(false, finishedSnippet, initialStart);
+
+        if (authStatus.authenticated) {
+          await spotify.pause(activeDevice?.id);
+          spotify.pause().catch(() => {});
+        }
+        audioEngine.stopAll();
+        showToast(`Mashup complete! (${finishedSnippet.mashupSegments.length} parts)`, 'info');
+        return;
       }
 
       const runKey = `${finishedSnippet.id}:${playbackRunIdRef.current}`;
@@ -785,18 +830,18 @@ export default function App() {
       // Immediately stop all timers and aggressively halt Spotify playback
       setIsPlaying(false);
       isPlayingRef.current = false;
-      const initialStart = finishedSnippet.isMashup && finishedSnippet.mashupSegments?.[0]
-        ? finishedSnippet.mashupSegments[0].startMs
-        : finishedSnippet.startMs;
+      const initialStart = finishedSnippet.startMs;
       currentPositionMsRef.current = initialStart;
       setPositionMs(initialStart);
       syncPlaybackToServer(false, finishedSnippet, initialStart);
 
       if (authStatus.authenticated) {
         await spotify.pause(activeDevice?.id);
+        spotify.pause().catch(() => {});
       }
+      audioEngine.stopAll();
     },
-    [playbackMode, customQueue, getQueue, playSnippet, authStatus.authenticated, activeDevice, syncPlaybackToServer]
+    [playbackMode, customQueue, getQueue, playSnippet, authStatus.authenticated, activeDevice, syncPlaybackToServer, showToast]
   );
 
   const handleSnippetCompletedRef = useRef(handleSnippetCompleted);
@@ -955,6 +1000,21 @@ export default function App() {
   };
 
   const handleNext = () => {
+    // If currently playing a multi-segment mashup and not on the last segment, advance to next segment!
+    if (
+      currentSnippet?.isMashup &&
+      currentSnippet.mashupSegments &&
+      currentSnippet.mashupSegments.length > 1
+    ) {
+      const curIdx = activeMashupSegmentIndexRef.current;
+      if (curIdx < currentSnippet.mashupSegments.length - 1) {
+        const nextIdx = curIdx + 1;
+        const nextSeg = currentSnippet.mashupSegments[nextIdx];
+        playSnippet(currentSnippet, nextSeg.startMs, nextIdx);
+        return;
+      }
+    }
+
     if (customQueue.length > 0) {
       const [nextFromQueue, ...remaining] = customQueue;
       setCustomQueue(remaining);
@@ -973,6 +1033,28 @@ export default function App() {
   };
 
   const handlePrev = () => {
+    // If currently playing a multi-segment mashup
+    if (
+      currentSnippet?.isMashup &&
+      currentSnippet.mashupSegments &&
+      currentSnippet.mashupSegments.length > 1
+    ) {
+      const curIdx = activeMashupSegmentIndexRef.current;
+      const curSeg = currentSnippet.mashupSegments[curIdx];
+      // If played more than 3s into this segment, restart this segment
+      if (curSeg && positionMs - curSeg.startMs > 3000) {
+        playSnippet(currentSnippet, curSeg.startMs, curIdx);
+        return;
+      }
+      // If on part 2 or 3, go back to previous segment
+      if (curIdx > 0) {
+        const prevIdx = curIdx - 1;
+        const prevSeg = currentSnippet.mashupSegments[prevIdx];
+        playSnippet(currentSnippet, prevSeg.startMs, prevIdx);
+        return;
+      }
+    }
+
     const queue = getQueue();
     if (queue.length === 0) return;
     if (!currentSnippet) {

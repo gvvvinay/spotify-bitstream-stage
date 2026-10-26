@@ -76,8 +76,13 @@ export const SnippetPlayerBar: React.FC<SnippetPlayerBarProps> = ({
 
   if (!currentSnippet) return null;
 
-  const startMs = currentSnippet.startMs;
-  const endMs = currentSnippet.endMs;
+  const activeSeg =
+    currentSnippet.isMashup && currentSnippet.mashupSegments && currentSnippet.mashupSegments[mashupSegmentIndex]
+      ? currentSnippet.mashupSegments[mashupSegmentIndex]
+      : null;
+
+  const startMs = activeSeg ? activeSeg.startMs : currentSnippet.startMs;
+  const endMs = activeSeg ? activeSeg.endMs : currentSnippet.endMs;
   const snippetDurationMs = Math.max(1000, endMs - startMs);
 
   // Position relative to snippet start

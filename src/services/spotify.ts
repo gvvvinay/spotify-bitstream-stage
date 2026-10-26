@@ -1205,6 +1205,12 @@ class SpotifyService {
         if (res.status === 204 || res.status === 200) {
           return true;
         }
+        if (res.status === 401) {
+          const refreshed = await this.checkServerSession();
+          if (refreshed && this.accessToken) {
+            return this.pause(targetDeviceId);
+          }
+        }
       } catch (e) {}
     }
 
@@ -1215,6 +1221,12 @@ class SpotifyService {
         method: 'PUT',
         headers: { Authorization: `Bearer ${this.accessToken}` },
       });
+      if (fallbackRes.status === 401) {
+        const refreshed = await this.checkServerSession();
+        if (refreshed && this.accessToken) {
+          return this.pause(targetDeviceId);
+        }
+      }
       return fallbackRes.status === 204 || fallbackRes.status === 200;
     } catch (e) {
       return false;
