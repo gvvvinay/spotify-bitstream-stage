@@ -99,7 +99,8 @@ export const SnippetPlaylistView: React.FC<SnippetPlaylistViewProps> = ({
   const [filterMode, setFilterMode] = useState<'all' | 'favorites' | 'recent'>('all');
   const [internalMobileHome, setInternalMobileHome] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
-      return window.innerWidth < 768;
+      const isMobileDevice = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+      return isMobileDevice || window.innerWidth < 768;
     }
     return false;
   });

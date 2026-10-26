@@ -68,9 +68,13 @@ export default function App() {
   const [customQueue, setCustomQueue] = useState<MusicSnippet[]>([]);
   const [recentlyPlayed, setRecentlyPlayed] = useState<MusicSnippet[]>(() => StorageService.loadRecentlyPlayed());
   const [playCounts, setPlayCounts] = useState<Record<string, number>>(() => StorageService.loadPlayCounts());
-  const [isMobileHome, setIsMobileHome] = useState<boolean>(() =>
-    typeof window !== 'undefined' ? window.innerWidth < 768 : false
-  );
+  const [isMobileHome, setIsMobileHome] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const isMobileDevice = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+      return isMobileDevice || window.innerWidth < 768;
+    }
+    return false;
+  });
   const [sleepTimerMinutes, setSleepTimerMinutes] = useState<number | null>(null);
   const [sleepTimeRemainingMs, setSleepTimeRemainingMs] = useState<number | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
