@@ -25,6 +25,7 @@ import { MusicSnippet, SnippetPlaylist, PlaybackMode, SpotifyDevice, ToastMessag
 import { StorageService } from './services/storage';
 import { spotify, SpotifyAuthStatus } from './services/spotify';
 import { audioEngine } from './services/audioEngine';
+import { backgroundAudio } from './services/backgroundAudio';
 import {
   auth,
   signInWithGoogle,
@@ -631,7 +632,7 @@ export default function App() {
       currentPositionMsRef.current = targetStart;
       currentSnippetRef.current = snippet;
       lastPlaybackCommandTimeRef.current = Date.now();
-      lastTickTimeRef.current = performance.now();
+      lastTickTimeRef.current = Date.now();
       isPlayingRef.current = true;
 
       setCurrentSnippet(snippet);
@@ -703,7 +704,7 @@ export default function App() {
             currentSnippetRef.current?.id === snippet.id &&
             isPlayingRef.current
           ) {
-            lastTickTimeRef.current = performance.now();
+            lastTickTimeRef.current = Date.now();
             currentPositionMsRef.current = targetStart;
             setPositionMs(targetStart);
           }
@@ -859,13 +860,13 @@ export default function App() {
       return;
     }
 
-    lastTickTimeRef.current = performance.now();
+    lastTickTimeRef.current = Date.now();
 
     playbackTimerRef.current = window.setInterval(() => {
       const activeSnippet = currentSnippetRef.current;
       if (!isPlayingRef.current || !activeSnippet) return;
 
-      const now = performance.now();
+      const now = Date.now();
       const delta = Math.max(0, now - lastTickTimeRef.current);
       lastTickTimeRef.current = now;
 
@@ -954,7 +955,7 @@ export default function App() {
     lastPlaybackCommandTimeRef.current = Date.now();
     setIsPlaying(true);
     isPlayingRef.current = true;
-    lastTickTimeRef.current = performance.now();
+    lastTickTimeRef.current = Date.now();
     syncPlaybackToServer(true, currentSnippet, positionMs);
     if (authStatus.authenticated) {
       const res = await spotify.playSnippet(currentSnippet.spotifyUri, positionMs, activeDevice?.id);
@@ -992,7 +993,7 @@ export default function App() {
         if (res.device && res.device.id !== activeDevice?.id) {
           setActiveDevice(res.device);
         }
-        lastTickTimeRef.current = performance.now();
+        lastTickTimeRef.current = Date.now();
       }
     } else {
       setIsSetupOpen(true);
@@ -1073,13 +1074,141 @@ export default function App() {
 
   const handleSeek = (targetMs: number) => {
     lastPlaybackCommandTimeRef.current = Date.now();
-    lastTickTimeRef.current = performance.now();
+    lastTickTimeRef.current = Date.now();
     currentPositionMsRef.current = targetMs;
     setPositionMs(targetMs);
     if (authStatus.authenticated) {
       spotify.seek(targetMs, activeDevice?.id);
     }
   };
+
+  // Controls ref to always point to latest transport handlers
+  const controlsRef = useRef({
+    handlePause,
+    handleResume,
+    handleNext,
+    handlePrev,
+    handleSeek,
+  });
+
+  useEffect(() => {
+    controlsRef.current = {
+      handlePause,
+      handleResume,
+      handleNext,
+      handlePrev,
+      handleSeek,
+    };
+  });
+
+  // Expose global window.BitStreamControls for Android Native Bridge & configure MediaSession action handlers
+  useEffect(() => {
+    const controls = {
+      togglePlay: () => {
+        if (isPlayingRef.current) {
+          controlsRef.current.handlePause();
+        } else {
+          controlsRef.current.handleResume();
+        }
+      },
+      play: () => controlsRef.current.handleResume(),
+      pause: () => controlsRef.current.handlePause(),
+      next: () => controlsRef.current.handleNext(),
+      prev: () => controlsRef.current.handlePrev(),
+      seek: (posMs: number) => controlsRef.current.handleSeek(posMs),
+    };
+
+    (window as any).BitStreamControls = controls;
+
+    if ('mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.setActionHandler('play', () => controls.play());
+        navigator.mediaSession.setActionHandler('pause', () => controls.pause());
+        navigator.mediaSession.setActionHandler('nexttrack', () => controls.next());
+        navigator.mediaSession.setActionHandler('previoustrack', () => controls.prev());
+        navigator.mediaSession.setActionHandler('seekto', (details) => {
+          if (details.seekTime !== undefined) {
+            controls.seek(details.seekTime * 1000);
+          }
+        });
+      } catch (e) {
+        console.warn('Failed to register MediaSession action handlers:', e);
+      }
+    }
+
+    return () => {
+      delete (window as any).BitStreamControls;
+    };
+  }, []);
+
+  // Synchronize playback state with Android Native Bridge, MediaSession API, and Background Keep-Alive
+  useEffect(() => {
+    if (isPlaying && currentSnippet) {
+      const isMashupBit = Boolean(
+        currentSnippet.isMashup &&
+        currentSnippet.mashupSegments &&
+        currentSnippet.mashupSegments.length > 0
+      );
+      const activeSeg = isMashupBit && currentSnippet.mashupSegments
+        ? currentSnippet.mashupSegments[activeMashupSegmentIndex]
+        : null;
+
+      const title = activeSeg?.title || currentSnippet.title || 'Snippet';
+      const artist = activeSeg?.artist || currentSnippet.artist || 'Spotify BitStream';
+      const album = currentSnippet.album || 'BitStream Snippets';
+      const albumArt = activeSeg?.albumArt || currentSnippet.albumArt;
+
+      // 1. Keep Android WebView CPU and timers alive via silent audio loop
+      backgroundAudio.start();
+
+      // 2. Android Lock Screen Media Notification Bridge
+      if (typeof (window as any).BitStreamNativeBridge !== 'undefined') {
+        try {
+          (window as any).BitStreamNativeBridge.onPlaybackStateChanged(true, title, artist);
+        } catch (e) {
+          console.warn('BitStreamNativeBridge error:', e);
+        }
+      }
+
+      // 3. Web MediaSession API for lock screen and Bluetooth controls
+      if ('mediaSession' in navigator) {
+        try {
+          navigator.mediaSession.metadata = new MediaMetadata({
+            title,
+            artist,
+            album,
+            artwork: albumArt ? [{ src: albumArt, sizes: '512x512', type: 'image/jpeg' }] : []
+          });
+          navigator.mediaSession.playbackState = 'playing';
+        } catch (e) {
+          console.warn('MediaSession metadata error:', e);
+        }
+      }
+    } else {
+      // 1. Pause background keep-alive audio
+      backgroundAudio.pause();
+
+      // 2. Update Android Lock Screen Media Notification
+      if (typeof (window as any).BitStreamNativeBridge !== 'undefined') {
+        try {
+          if (currentSnippet) {
+            (window as any).BitStreamNativeBridge.onPlaybackStateChanged(false, currentSnippet.title, currentSnippet.artist);
+          } else {
+            (window as any).BitStreamNativeBridge.onPlaybackStopped();
+          }
+        } catch (e) {
+          console.warn('BitStreamNativeBridge error:', e);
+        }
+      }
+
+      // 3. Web MediaSession API
+      if ('mediaSession' in navigator) {
+        try {
+          navigator.mediaSession.playbackState = 'paused';
+        } catch (e) {}
+      }
+    }
+  }, [isPlaying, currentSnippet, activeMashupSegmentIndex]);
 
   const handleTogglePlaybackMode = () => {
     if (playbackMode === 'linear') setPlaybackMode('repeat-snippet');
