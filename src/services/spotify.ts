@@ -563,6 +563,7 @@ class SpotifyService {
             if (this.accessToken) cb(this.accessToken);
           },
           volume: 0.8,
+          enableMediaSession: true,
         });
 
         player.addListener('ready', ({ device_id }: { device_id: string }) => {
@@ -580,6 +581,16 @@ class SpotifyService {
 
         player.addListener('player_state_changed', (state: any) => {
           this.playerStateListeners.forEach((l) => l(state));
+        });
+
+        player.addListener('autoplay_failed', () => {
+          console.warn('Spotify SDK autoplay_failed: attempting resume...');
+          player.resume().catch?.(() => {});
+        });
+
+        player.addListener('playback_error', ({ message }: { message: string }) => {
+          console.warn('Spotify SDK playback_error:', message);
+          player.resume().catch?.(() => {});
         });
 
         player.addListener('initialization_error', ({ message }: { message: string }) => {
@@ -956,8 +967,14 @@ class SpotifyService {
         activeDeviceParam = `?device_id=${this.webPlaybackDeviceId}`;
       }
 
+      const isTargetWebPlayer = Boolean(
+        (!resolvedDeviceId && this.webPlaybackDeviceId) ||
+        (resolvedDeviceId && this.webPlaybackDeviceId && resolvedDeviceId === this.webPlaybackDeviceId)
+      );
+
       // Resolve album context_uri (required for Android/OnePlus & iOS Spotify Connect mobile playback)
-      const albumUri = await this.getAlbumUriForTrack(trackUri);
+      // When targeting Web Playback SDK, always send explicit uris (album context_uri can stall DRM in background)
+      const albumUri = isTargetWebPlayer ? null : await this.getAlbumUriForTrack(trackUri);
       const posMs = Math.max(0, Math.floor(startMs));
 
       const playPayload = albumUri
@@ -996,6 +1013,19 @@ class SpotifyService {
       }
 
       if (res.status === 204 || res.status === 200) {
+        if (isTargetWebPlayer && this.player) {
+          try {
+            await this.player.resume();
+            if (typeof this.player.setVolume === 'function') {
+              this.player.setVolume(0.8).catch?.(() => {});
+            }
+          } catch (e) {}
+          setTimeout(() => {
+            try {
+              this.player?.resume()?.catch?.(() => {});
+            } catch (e) {}
+          }, 150);
+        }
         return { success: true, device: resolvedDeviceObj };
       }
 
